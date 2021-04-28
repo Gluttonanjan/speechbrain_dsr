@@ -2,7 +2,7 @@
 """Recipe for doing ASR with phoneme targets and CTC loss on the TIMIT dataset
 
 To run this recipe, do the following:
-> python train.py hparams/train.yaml --data_folder /path/to/TIMIT_GeV
+> python train.py hparams/train.yaml --data_folder /path/to/TIMIT_Gev
 
 Authors
  * Mirco Ravanelli 2020

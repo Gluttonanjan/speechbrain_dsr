@@ -4,11 +4,11 @@ This folder contains the scripts to train a CTC system using generalized eigenva
 
 # How to run
 
-``python gev_prepare.py`` (Creates a directory named ``TIMIT_GeV``)
+``python gev_prepare.py`` (Creates a directory named ``TIMIT_Gev``)
 
-With environmental corruption: ``python train_env.py hparams/train.yaml --data_folder /path/to/TIMIT_GeV``
+With environmental corruption: ``python train_env.py hparams/train.yaml --data_folder /path/to/TIMIT_Gev``
 
-Without environmental corruption: ``python train.py hparams/train.yaml --data_folder /path/to/TIMIT_GeV``
+Without environmental corruption: ``python train.py hparams/train.yaml --data_folder /path/to/TIMIT_Gev``
 
 # Results
 

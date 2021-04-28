@@ -175,11 +175,11 @@ for root, dirs, files in os.walk("TIMIT_combined"):
 dir_files = ["/".join(i.split("/")[3:]) for i in dir_files]
 
 for i in dir_files:
-    os.makedirs("TIMIT_GeV/" + i)
+    os.makedirs("TIMIT_Gev/" + i)
 
 for i in range(len(timit_df)):
     source = timit_df["location"][i][9:]
-    destination = "TIMIT_GeV/" + "/".join(source.split("/")[1:])
+    destination = "TIMIT_Gev/" + "/".join(source.split("/")[1:])
     speech_ds = generalized_eigenvalue(source, show_plots=False)
     write_audio(destination, speech_ds, samplerate=fs)
 
@@ -190,27 +190,27 @@ prepare_timit(data_folder, splits, save_folder)
 
 train_df = pd.read_csv("TIMIT_prepared/train.csv")
 train_df["wav"] = train_df["wav"].apply(
-    lambda x: x.replace("TIMIT", "TIMIT_GeV")
+    lambda x: x.replace("TIMIT", "TIMIT_Gev")
 )
 train_df.to_csv("TIMIT_prepared/train.csv", index=False)
 
 dev_df = pd.read_csv("TIMIT_prepared/dev.csv")
-dev_df["wav"] = dev_df["wav"].apply(lambda x: x.replace("TIMIT", "TIMIT_GeV"))
+dev_df["wav"] = dev_df["wav"].apply(lambda x: x.replace("TIMIT", "TIMIT_Gev"))
 dev_df.to_csv("TIMIT_prepared/dev.csv", index=False)
 
 test_df = pd.read_csv("TIMIT_prepared/test.csv")
-test_df["wav"] = test_df["wav"].apply(lambda x: x.replace("TIMIT", "TIMIT_GeV"))
+test_df["wav"] = test_df["wav"].apply(lambda x: x.replace("TIMIT", "TIMIT_Gev"))
 test_df.to_csv("TIMIT_prepared/test.csv", index=False)
 
-shutil.copy("/content/TIMIT_prepared/train.csv", "/content/TIMIT_GeV")
-shutil.copy("/content/TIMIT_prepared/dev.csv", "/content/TIMIT_GeV")
-shutil.copy("/content/TIMIT_prepared/test.csv", "/content/TIMIT_GeV")
+shutil.copy("/content/TIMIT_prepared/train.csv", "/content/TIMIT_Gev")
+shutil.copy("/content/TIMIT_prepared/dev.csv", "/content/TIMIT_Gev")
+shutil.copy("/content/TIMIT_prepared/test.csv", "/content/TIMIT_Gev")
 
 for root, file, dirs in os.walk("TIMIT"):  # /path/to/TIMIT
     for dir in dirs:
         source = os.path.join(root, dir)
         if ".wav" not in source:
-            destination = source.replace("TIMIT", "TIMIT_GeV")
+            destination = source.replace("TIMIT", "TIMIT_Gev")
             shutil.copyfile(
                 source, destination
-            )  # copy from /path/to/TIMIT to /path/to/TIMIT_GeV
+            )  # copy from /path/to/TIMIT to /path/to/TIMIT_Gev
