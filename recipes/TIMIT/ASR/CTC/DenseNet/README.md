@@ -1,4 +1,4 @@
-# TIMIT ASR with CTC models (ResNet) - Results of Experiments
+# TIMIT ASR with CTC models (DenseNet) - Results of Experiments
 
 | Experiment                | Test PER (env_corrupt) |
 | ------------------------- | ---------------------- |
