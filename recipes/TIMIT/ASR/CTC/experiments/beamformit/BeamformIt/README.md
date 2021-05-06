@@ -3,6 +3,7 @@
 This folder contains the scripts to train a CTC system using a tool named [BeamformIt](https://github.com/xanguera/BeamformIt) on TIMIT.
 
 # How to run
+``python create_timit_combined.py`` (Creates ``timit_combined.csv``)
 
 ``python beamformit_prepare.py`` (Creates a directory named ``TIMIT_BeamformIt``)
 

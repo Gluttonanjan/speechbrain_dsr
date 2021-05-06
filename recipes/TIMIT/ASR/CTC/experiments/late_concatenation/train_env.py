@@ -66,22 +66,8 @@ class ASR_Brain(sb.Brain):
         phns, phn_lens = batch.phn_encoded
 
         if stage == sb.Stage.TRAIN:
-            phns = torch.cat(
-                [phns, phns, phns, phns, phns, phns, phns, phns], dim=0
-            )
-            phn_lens = torch.cat(
-                [
-                    phn_lens,
-                    phn_lens,
-                    phn_lens,
-                    phn_lens,
-                    phn_lens,
-                    phn_lens,
-                    phn_lens,
-                    phn_lens,
-                ],
-                dim=0,
-            )
+            phns = torch.cat([phns, phns] * 4, dim=0)
+            phn_lens = torch.cat([phn_lens, phn_lens] * 4, dim=0,)
 
         loss = self.hparams.compute_cost(pout, phns, pout_lens, phn_lens)
         self.ctc_metrics.append(batch.id, pout, phns, pout_lens, phn_lens)

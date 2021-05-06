@@ -2,7 +2,7 @@
 """Recipe for doing ASR with phoneme targets and CTC loss on the TIMIT dataset
 
 To run this recipe, do the following:
-> python train.py hparams/train.yaml --data_folder /path/to/TIMIT_4_channels/TIMIT_LA2
+> python train_env.py hparams/train.yaml --data_folder /path/to/TIMIT_4_channels/TIMIT_LA2
 
 Authors
  * Mirco Ravanelli 2020
@@ -16,18 +16,7 @@ import speechbrain as sb
 from hyperpyyaml import load_hyperpyyaml
 from speechbrain.utils.distributed import run_on_main
 
-from speechbrain.processing.features import STFT, ISTFT
-from speechbrain.processing.multi_mic import Covariance
-from speechbrain.processing.multi_mic import GccPhat
-from speechbrain.processing.multi_mic import DelaySum
-
 logger = logging.getLogger(__name__)
-
-stft = STFT(sample_rate=16000)
-cov = Covariance()
-gccphat = GccPhat()
-delaysum = DelaySum()
-istft = ISTFT(sample_rate=16000)
 
 
 # Define training procedure
@@ -35,35 +24,13 @@ class ASR_Brain(sb.Brain):
     def compute_forward(self, batch, stage):
         "Given an input batch it computes the phoneme probabilities."
         batch = batch.to(self.device)
-        wavs1, wav_lens1 = batch.sig1
-        wavs2, wav_lens2 = batch.sig2
-        wavs3, wav_lens3 = batch.sig3
-        wavs4, wav_lens4 = batch.sig4
-        wavs = torch.cat([wavs1, wavs2, wavs3, wavs4], dim=0)
-        wav_lens = torch.cat([wav_lens1, wav_lens2, wav_lens3, wav_lens4])
-
-        if stage != sb.Stage.TRAIN:
-            out_sig = torch.cat(
-                [
-                    wavs1.unsqueeze(2),
-                    wavs2.unsqueeze(2),
-                    wavs3.unsqueeze(2),
-                    wavs4.unsqueeze(2),
-                ],
-                dim=-1,
-            )
-
-            Xs = stft(out_sig)
-            XXs = cov(Xs)
-            tdoas = gccphat(XXs)
-            Ys_ds = delaysum(Xs, tdoas)
-            ys_ds = istft(Ys_ds)
-
-            wavs = ys_ds.squeeze()
-
-            wav_lens = torch.stack(
-                [wav_lens1, wav_lens2, wav_lens3, wav_lens4]
-            ).mean(dim=0)
+        wavs, wav_lens = batch.sig
+        # Adding optional augmentation when specified:
+        if stage == sb.Stage.TRAIN:
+            if hasattr(self.hparams, "env_corrupt"):
+                wavs_noise = self.hparams.env_corrupt(wavs, wav_lens)
+                wavs = torch.cat([wavs, wavs_noise], dim=0)
+                wav_lens = torch.cat([wav_lens, wav_lens])
 
         feats = self.hparams.compute_features(wavs)
         feats = self.modules.normalize(feats, wav_lens)
@@ -78,9 +45,9 @@ class ASR_Brain(sb.Brain):
         pout, pout_lens = predictions
         phns, phn_lens = batch.phn_encoded
 
-        if stage == sb.Stage.TRAIN:
-            phns = torch.cat([phns, phns] * 2, dim=0)
-            phn_lens = torch.cat([phn_lens, phn_lens] * 2, dim=0)
+        if stage == sb.Stage.TRAIN and hasattr(self.hparams, "env_corrupt"):
+            phns = torch.cat([phns, phns], dim=0)
+            phn_lens = torch.cat([phn_lens, phn_lens], dim=0)
 
         loss = self.hparams.compute_cost(pout, phns, pout_lens, phn_lens)
         self.ctc_metrics.append(batch.id, pout, phns, pout_lens, phn_lens)
@@ -187,13 +154,10 @@ def dataio_prep(hparams):
 
     # 2. Define audio pipeline:
     @sb.utils.data_pipeline.takes("wav")
-    @sb.utils.data_pipeline.provides("sig1", "sig2", "sig3", "sig4")
+    @sb.utils.data_pipeline.provides("sig")
     def audio_pipeline(wav):
-        sig1 = sb.dataio.dataio.read_audio(wav)
-        sig2 = sb.dataio.dataio.read_audio(wav.replace("_LA2", "_LA3"))
-        sig3 = sb.dataio.dataio.read_audio(wav.replace("_LA2", "_LA4"))
-        sig4 = sb.dataio.dataio.read_audio(wav.replace("_LA2", "_LA5"))
-        return sig1, sig2, sig3, sig4
+        sig = sb.dataio.dataio.read_audio(wav)
+        return sig
 
     sb.dataio.dataset.add_dynamic_item(datasets, audio_pipeline)
 
@@ -220,9 +184,7 @@ def dataio_prep(hparams):
     )
 
     # 4. Set output:
-    sb.dataio.dataset.set_output_keys(
-        datasets, ["id", "sig1", "sig2", "sig3", "sig4", "phn_encoded"]
-    )
+    sb.dataio.dataset.set_output_keys(datasets, ["id", "sig", "phn_encoded"])
 
     return train_data, valid_data, test_data, label_encoder
 

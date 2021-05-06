@@ -64,10 +64,6 @@ class CRDNN(sb.nnet.containers.Sequential):
         The number of neurons in the linear layers.
     use_rnnp: bool
         If True, a linear projection layer is added between RNN layers.
-    mean: bool
-        If True, a layer is added to compute the mean of the output of CNN blocks for given microphones.
-    n_microphones: int
-        The number of microphones (multi-mic).
     projection_dim : int
         The number of neurons in the projection layer.
         This layer is used to reduce the size of the flattened
@@ -105,8 +101,7 @@ class CRDNN(sb.nnet.containers.Sequential):
         dnn_neurons=512,
         projection_dim=-1,
         use_rnnp=False,
-        mean=False,
-        n_microphones=4,
+        dense_layers=[6, 12, 24, 16],
     ):
         if input_size is None and input_shape is None:
             raise ValueError("Must specify one of input_size or input_shape")
@@ -116,23 +111,32 @@ class CRDNN(sb.nnet.containers.Sequential):
         super().__init__(input_shape=input_shape)
 
         if cnn_blocks > 0:
-            self.append(sb.nnet.containers.Sequential, layer_name="CNN")
+            self.append(sb.nnet.containers.Sequential, layer_name="DenseNet")
         for block_index in range(cnn_blocks):
-            self.CNN.append(
-                CNN_Block,
+            self.DenseNet.append(
+                Dense_Block,
                 channels=cnn_channels[block_index],
                 kernel_size=cnn_kernelsize,
                 using_2d_pool=using_2d_pooling,
                 pooling_size=inter_layer_pooling_size[block_index],
                 activation=activation,
                 dropout=dropout,
+                total_layers=dense_layers[block_index],
                 layer_name=f"block_{block_index}",
             )
 
-        if mean:
-            self.append(
-                Mean_layer, n_microphones=n_microphones, layer_name="mean"
+            self.DenseNet.append(
+                sb.nnet.dropout.Dropout2d(drop_rate=dropout),
+                layer_name=f"drop_{block_index}",
             )
+
+            if block_index != cnn_blocks - 1:
+                self.DenseNet.append(
+                    Transition,
+                    channels=cnn_channels[block_index],
+                    kernel_size=cnn_kernelsize,
+                    layer_name="transition",
+                )
 
         if time_pooling:
             self.append(
@@ -205,37 +209,63 @@ class CRDNN(sb.nnet.containers.Sequential):
             )
 
 
-class Mean_layer(sb.nnet.containers.Sequential):
-    """A layer to compute the mean of the output of CNN blocks for given microphones
+class Transition(sb.nnet.containers.Sequential):
+    """Layer to control the complexity of DenseNet.
 
     Arguments
     ---------
     input_shape : tuple
         Expected shape of the input.
-    n_microphones : int
-        Number of microphones
+    channels : int
+        Number of convolutional channels for the block.
+    kernel_size : tuple
+        Size of the 2d convolutional kernel
+    activation : torch.nn.Module class
+        Class definition to use for constructing activation layers.
+    pooling_size : int
+        Size of pooling kernel, duplicated for 2d pooling.
 
     Example
     -------
-    >>> inputs = torch.rand(32, 109, 10, 256)
-    >>> block = Mean_layer(input_shape=inputs.shape, n_microphones=4)
+    >>> input = torch.rand(10, 15, 60, 32)
+    >>> block = Transition(input_shape=inputs.shape, channels=32)
     >>> outputs = block(inputs)
     >>> outputs.shape
-    torch.Size([8, 109, 10, 256])
+    torch.Size([10, 15, 30, 32])
     """
 
-    def __init__(self, input_shape, n_microphones):
+    def __init__(
+        self,
+        input_shape,
+        channels,
+        kernel_size=[1, 1],
+        activation=torch.nn.LeakyReLU,
+        pooling_size=2,
+    ):
         super().__init__(input_shape=input_shape)
-        self.n_microphones = n_microphones
-
-    def forward(self, x):
-        return torch.stack(list(torch.chunk(x, self.n_microphones, 0))).mean(
-            dim=0
+        self.append(
+            sb.nnet.CNN.Conv2d,
+            out_channels=channels,
+            kernel_size=tuple(int(i / i) for i in kernel_size),
+            layer_name="conv_transition",
+        )
+        self.append(
+            sb.nnet.normalization.LayerNorm, layer_name="norm_transition"
+        )
+        self.append(activation(), layer_name="activation_transition")
+        self.append(
+            sb.nnet.pooling.Pooling1d(
+                pool_type="avg",
+                input_dims=4,
+                kernel_size=pooling_size,
+                pool_axis=2,
+            ),
+            layer_name="pooling_transition",
         )
 
 
-class CNN_Block(sb.nnet.containers.Sequential):
-    """CNN Block, based on VGG blocks.
+class Dense_Block(sb.nnet.containers.Sequential_dense):
+    """Block for DenseNet.
 
     Arguments
     ---------
@@ -247,20 +277,16 @@ class CNN_Block(sb.nnet.containers.Sequential):
         Size of the 2d convolutional kernel
     activation : torch.nn.Module class
         A class to be used for instantiating an activation layer.
-    using_2d_pool : bool
-        Whether to use 2d pooling or only 1d pooling.
-    pooling_size : int
-        Size of pooling kernel, duplicated for 2d pooling.
-    dropout : float
-        Rate to use for dropping channels.
+    total_layers : int
+        Number of layers in the block
 
     Example
     -------
     >>> inputs = torch.rand(10, 15, 60)
-    >>> block = CNN_Block(input_shape=inputs.shape, channels=32)
+    >>> block = Dense_Block(input_shape=inputs.shape, channels=32)
     >>> outputs = block(inputs)
     >>> outputs.shape
-    torch.Size([10, 15, 30, 32])
+    torch.Size([10, 15, 60, 32])
     """
 
     def __init__(
@@ -272,6 +298,7 @@ class CNN_Block(sb.nnet.containers.Sequential):
         using_2d_pool=False,
         pooling_size=2,
         dropout=0.15,
+        total_layers=16,
     ):
         super().__init__(input_shape=input_shape)
         self.append(
@@ -282,38 +309,19 @@ class CNN_Block(sb.nnet.containers.Sequential):
         )
         self.append(sb.nnet.normalization.LayerNorm, layer_name="norm_1")
         self.append(activation(), layer_name="act_1")
-        self.append(
-            sb.nnet.CNN.Conv2d,
-            out_channels=channels,
-            kernel_size=kernel_size,
-            layer_name="conv_2",
-        )
-        self.append(sb.nnet.normalization.LayerNorm, layer_name="norm_2")
-        self.append(activation(), layer_name="act_2")
-
-        if using_2d_pool:
+        for i in range(total_layers - 1):
             self.append(
-                sb.nnet.pooling.Pooling2d(
-                    pool_type="max",
-                    kernel_size=(pooling_size, pooling_size),
-                    pool_axis=(1, 2),
-                ),
-                layer_name="pooling",
+                sb.nnet.CNN.Conv2d,
+                out_channels=channels,
+                kernel_size=kernel_size,
+                factor=i + 1,
+                layer_name="conv_{}".format(i + 2),
             )
-        else:
             self.append(
-                sb.nnet.pooling.Pooling1d(
-                    pool_type="max",
-                    input_dims=4,
-                    kernel_size=pooling_size,
-                    pool_axis=2,
-                ),
-                layer_name="pooling",
+                sb.nnet.normalization.LayerNorm,
+                layer_name="norm_{}".format(i + 2),
             )
-
-        self.append(
-            sb.nnet.dropout.Dropout2d(drop_rate=dropout), layer_name="drop"
-        )
+            self.append(activation(), layer_name="act_{}".format(i + 2))
 
 
 class DNN_Block(sb.nnet.containers.Sequential):
